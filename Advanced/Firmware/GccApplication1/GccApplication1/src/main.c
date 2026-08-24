@@ -40,9 +40,6 @@
 /*
  * Values required for the progress review.
  *
- * The marker may change these values while keeping
- * the required formats:
- *
  * RMSVoltage  -> XX.X
  * PeakCurrent -> XXX
  * Power       -> X.XX
