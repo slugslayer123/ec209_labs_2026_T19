@@ -1,0 +1,70 @@
+*
+*******************************************
+*
+*BZT52H-B3V6
+*
+*NXP Semiconductors
+*
+*Single zener diode in a SOD123F package
+*
+*
+*
+*
+*VFmax = 0,9V  @ IF = 10mA  
+*
+*
+*
+*VZmax = 3,67V @ IZ = 5mA
+*
+*
+*
+*
+* 
+*
+*
+*Package pinning does not match Spice model pinning.
+*Package: SOD123F
+*
+*Package Pin 1: Cathode
+*Package Pin 2: Anode
+* 
+*
+*
+*Extraction date (week/year): 01/2016
+*Simulator: SPICE2
+*
+*******************************************
+*#
+.SUBCKT BZT52H-B3V6 1 2     
+ R1 1 2 1E+008   
+ D1 1 2  
+ + DIODE1
+ D2 3 1  
+ + DIODE2
+ VZ 2 3 0.1      
+*
+*The resistor R1, the diode D2 and   
+*VZ do not reflect  
+*physical devices but improve 
+*only modeling in the reverse 
+*mode of operation.
+*
+ .MODEL DIODE1 D 
+ + IS = 1.9E-011 
+ + N = 1.53      
+ + BV = 3.9      
+ + IBV = 0.005   
+ + RS = 0.28     
+ + CJO = 1.554E-010      
+ + VJ = 0.12     
+ + M = 0.135     
+ + FC = 0.5      
+ + TT = 0
+ + EG = 1.1      
+ + XTI = 3       
+ .MODEL DIODE2 D 
+ + IS = 8E-009   
+ + N = 9 
+ + RS = 80       
+ .ENDS                   
+*
