@@ -1,0 +1,14 @@
+name: ee209_monitor
+publish_to: none
+description: EE209 smart energy monitor companion app
+version: 0.1.0+1
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true
