@@ -51,19 +51,31 @@ static void rebuild(void) {
     if (mode==0) { /* Voltage numeric with 0.1-V resolution. */
         uint32_t x=(current.voltage_mv+50u)/100u;
         show_tenths((uint16_t)(x>9999u?10000u:x),0);
-    } else if (mode==1) { /* I + 3 digits in mApeak, expected <1000 */
-        uint32_t i=current.current_peak_ma;
-        if (i>999u) { for(uint8_t k=0;k<4;k++) patterns[k]=SEG_DASH; return; }
-        patterns[0]=SEG_I;
-        patterns[1]=segment_digits[(i/100)%10];
-        patterns[2]=segment_digits[(i/10)%10];
-        patterns[3]=segment_digits[i%10];
-    } else {
-        const int32_t mw=current.power_mw;
-        if (mw < 0 || mw>9900) { for(uint8_t k=0;k<4;k++) patterns[k]=SEG_DASH; return; }
-        show_tenths((uint16_t)((mw+50)/100),1);
+    } else if (mode==1) { /* Peak current in mA, four-digit display */
+    uint32_t i = current.current_peak_ma;
+
+    if (i > 9999u) {
+	    for (uint8_t k=0; k<4; k++) patterns[k]=SEG_DASH;
+	    return;
+    }
+
+    patterns[0] = (i >= 1000u) ? segment_digits[(i/1000u)%10u] : SEG_BLANK;
+    patterns[1] = (i >= 100u)  ? segment_digits[(i/100u)%10u]  : SEG_BLANK;
+    patterns[2] = (i >= 10u)   ? segment_digits[(i/10u)%10u]   : SEG_BLANK;
+    patterns[3] = segment_digits[i%10u];
+    } else { /* Real power in W, numeric display */
+    const int32_t mw = current.power_mw;
+
+    if (mw < 0 || mw >= 999950L) {
+	    for (uint8_t k = 0; k < 4; k++)
+	    patterns[k] = SEG_DASH;
+	    return;
+    }
+
+    show_tenths((uint16_t)((mw + 50L) / 100L), 0);
     }
 }
+
 void display_init(void) {
     DDRC |= _BV(DISPLAY_SH_CP_PC)|_BV(DISPLAY_SH_DS_PC)|_BV(DISPLAY_SH_ST_PC);
     DDRB |= _BV(DISPLAY_OE_PB);
