@@ -12,9 +12,9 @@
 #define ADC_REFERENCE_VOLTS      5.0f  /* actual AVCC: MEASURE TOMORROW */
 
 /* Timer1 period: 320 CPU cycles -> 6250 TOTAL conversions/s, 3125/ch. */
-#define ADC_TOTAL_HZ             6250UL
+#define ADC_TOTAL_HZ             4800UL
 #define ADC_TIMER1_TOP           ((F_CPU / ADC_TOTAL_HZ) - 1UL)
-#define MEASUREMENT_PAIRS        250u   /* one result per 80 ms */
+#define MEASUREMENT_PAIRS        240u   /* one result per 80 ms */
 
 /* DO NOT CALL THESE CALIBRATED VALUES. Replace after scope/reference test. */
 #define VOLTS_PER_ADC_COUNT      0.1000f  /* provisional, NOT verified on PCB */
