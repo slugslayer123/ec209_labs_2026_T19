@@ -14,11 +14,11 @@
 /* Timer1 period: 320 CPU cycles -> 6250 TOTAL conversions/s, 3125/ch. */
 #define ADC_TOTAL_HZ             4800UL
 #define ADC_TIMER1_TOP           ((F_CPU / ADC_TOTAL_HZ) - 1UL)
-#define MEASUREMENT_PAIRS        240u   /* one result per 80 ms */
+#define MEASUREMENT_PAIRS        240u   
 
 /* DO NOT CALL THESE CALIBRATED VALUES. Replace after scope/reference test. */
-#define VOLTS_PER_ADC_COUNT      0.1000f  /* provisional, NOT verified on PCB */
-#define AMPS_PER_ADC_COUNT       0.00475f /* provisional, NOT verified on PCB */
+#define VOLTS_PER_ADC_COUNT      0.106615f  /* provisional, NOT verified on PCB */
+#define AMPS_PER_ADC_COUNT       0.004723f /* provisional, NOT verified on PCB */
 #define ANALOG_PHASE_CORR_DEG    0.0f    /* +ve advances voltage relative to I */
 #define AC_FREQUENCY_HZ          500.0f
 #define CALIBRATION_COMPLETE    0u      /* set 1 ONLY after reference measurements */
