@@ -1,0 +1,274 @@
+--- working_throughhole/uart(1).c
++++ SMT/uart.c
+@@ -19,7 +19,7 @@
+     /* Main loop is the ONLY producer, ISR the ONLY consumer. Snapshotting the
+      * 8-bit indices is atomic on AVR. The ISR cannot see bytes until we publish
+      * tx_head at the end. Do NOT block interrupts while copying the packet;
+-     * otherwise the 6.25-kHz ADC service would miss deadlines. */
++     * otherwise the ~4.8-kHz ADC service could miss deadlines. */
+     const uint8_t start = tx_head;
+     const uint8_t used = (uint8_t)((start - tx_tail) & (UART_TX_BUFFER_SIZE-1u));
+     if ((uint8_t)(UART_TX_BUFFER_SIZE-1u-used) < len) return 0;
+@@ -35,7 +35,7 @@
+     return 1;
+ }
+ 
+-ISR(USART_UDRE_vect) {
++ISR(USART0_UDRE_vect) /* ATmega328PB USART0 TX-data-register-empty */ {
+     if (tx_tail == tx_head) {
+         UCSR0B &= (uint8_t)~_BV(UDRIE0);
+     } else {
+
+--- working_throughhole/adc.c
++++ SMT/adc.c
+@@ -7,7 +7,7 @@
+ #error Verify clock settings for acquisition
+ #endif
+ 
+-/* 250 pairs use 501 ADC samples (1002 bytes of SRAM). No per-sample math
++/* 240 pairs use 481 ADC samples (962 bytes of SRAM). No per-sample math
+  * or floating point occurs inside the interrupt. */
+ #define CAPTURE_COUNT ((uint16_t)(2u * MEASUREMENT_PAIRS + 1u))
+ static volatile uint16_t samples[CAPTURE_COUNT];
+@@ -21,7 +21,10 @@
+     DDRB |= _BV(PB0);
+     PORTB &= (uint8_t)~_BV(PB0);
+ #endif
+-    offset_at_boot = 0xFFFFu;
++    /* The SMT ADC2 pin measures VvInt rather than the analogue 2.1 V bias.
++     * Publish a zero diagnostic value instead of mislabelling it as an offset.
++     */
++    offset_at_boot = 0u;
+ #if ENABLE_BOOT_ADC2_READ
+     ADMUX = _BV(REFS0) | ADC_OFFSET_CHANNEL;
+     ADCSRB = 0;
+@@ -30,7 +33,7 @@
+     while (ADCSRA & _BV(ADSC)) { }
+     offset_at_boot = ADC;
+ #endif
+-    DIDR0 |= _BV(ADC0D) | _BV(ADC1D) | _BV(ADC2D);
++    DIDR0 |= _BV(ADC0D) | _BV(ADC1D);
+     TCCR1A = 0;
+     TCCR1B = 0;
+     TIMSK1 = 0;
+@@ -50,7 +53,7 @@
+     ADCSRB = _BV(ADTS2) | _BV(ADTS0); /* Timer1 COMPB */
+     TCNT1 = 0;
+     TIFR1 = _BV(OCF1B);
+-    /* ADIF is write-one-to-clear: discard any pending flag from ADC2. */
++    /* ADIF is write-one-to-clear: discard any pending ADC flag. */
+     ADCSRA = _BV(ADEN) | _BV(ADATE) | _BV(ADIE) | _BV(ADPS2) | _BV(ADIF);
+     ADCSRA |= _BV(ADSC);
+     TCCR1B = _BV(WGM12) | _BV(CS10);
+
+--- working_throughhole/board_config.h
++++ SMT/board_config.h
+@@ -1,40 +1,49 @@
+ #ifndef BOARD_CONFIG_H
+ #define BOARD_CONFIG_H
+ 
+-/* EE209 through-hole standard board with Xplained Mini, ATmega328P. */
++/* EE209 SMT PCB (SMTschem.pdf, 14 Oct 2026), onboard ATmega328PB.
++ * Keep the known-good through-hole project separate from this build.
++ * The board's 2 MHz external crystal requires appropriate clock fuses.
++ */
++#ifndef __AVR_ATmega328PB__
++#error "Select ATmega328PB as the target device for this SMT firmware"
++#endif
+ #ifndef F_CPU
+ #define F_CPU 2000000UL
+ #endif
+ 
+-#define ADC_VOLTAGE_CHANNEL      0u    /* PC0: Vvf */
+-#define ADC_CURRENT_CHANNEL      1u    /* PC1: Vif */
+-#define ADC_OFFSET_CHANNEL       2u    /* PC2: buffered 2.1 V (check PCB) */
+-#define ADC_REFERENCE_VOLTS      5.0f  /* actual AVCC: MEASURE TOMORROW */
++#define ADC_VOLTAGE_CHANNEL      1u    /* SMT: PC1 / ADC1 = Vvf */
++#define ADC_CURRENT_CHANNEL      0u    /* SMT: PC0 / ADC0 = Vif */
++#define ADC_OFFSET_CHANNEL       2u    /* SMT: PC2 = VvInt, NOT 2.1VB (unused) */
++#define ADC_REFERENCE_VOLTS      5.0f  /* AVCC reference nominally 5 V; verify physically */
+ 
+-/* Timer1 period: 320 CPU cycles -> 6250 TOTAL conversions/s, 3125/ch. */
++/* Keep current tested settings: ~4808 total ADC conversions/s. */
+ #define ADC_TOTAL_HZ             4800UL
+ #define ADC_TIMER1_TOP           ((F_CPU / ADC_TOTAL_HZ) - 1UL)
+ #define MEASUREMENT_PAIRS        240u   
+ 
+-/* DO NOT CALL THESE CALIBRATED VALUES. Replace after scope/reference test. */
+-#define VOLTS_PER_ADC_COUNT      0.106615f  /* provisional, NOT verified on PCB */
+-#define AMPS_PER_ADC_COUNT       0.004723f /* provisional, NOT verified on PCB */
++/* Starting gains copied from through-hole version: NOT SMT calibrated. */
++#define VOLTS_PER_ADC_COUNT      0.106615f  /* provisional on SMT */
++#define AMPS_PER_ADC_COUNT       0.004723f  /* provisional on SMT */
+ #define ANALOG_PHASE_CORR_DEG    0.0f    /* +ve advances voltage relative to I */
+ #define AC_FREQUENCY_HZ          500.0f
+ #define CALIBRATION_COMPLETE    0u      /* set 1 ONLY after reference measurements */
+ 
+-/* For standard PCB (not SMT). Shift-register segments assumed active-high. */
+-#define DISPLAY_SH_CP_PC         PC3
+-#define DISPLAY_SH_DS_PC         PC4
+-#define DISPLAY_SH_ST_PC         PC5
+-#define DISPLAY_OE_PB            PB1
+-#define DISPLAY_DIGIT_BASE_PD    PD4     /* PD4..PD7, digit active-low */
++/* SMT: 74HC595 shift register uses PB0/PB1/PB2; OE is PD3. */
++#define DISPLAY_SH_CP_PB         PB0
++#define DISPLAY_SH_DS_PB         PB1
++#define DISPLAY_SH_ST_PB         PB2
++#define DISPLAY_OE_PD            PD3
++#define DISPLAY_DIGIT_BASE_PD    PD4     /* PD4..PD7, active-low */
+ 
+ #define UART_BAUD               9600UL
+ #define UART_TX_BUFFER_SIZE     128u
+ #define ADC_RING_CAPACITY       128u      /* must be a power of 2 */
+ 
+ /* Diagnostics: read ADC2 once during initialization, before timer-triggered acquisition. */
+-#define ENABLE_BOOT_ADC2_READ   1u
+-#define ENABLE_ADC_SCOPE_MARKER 0u /* 1: toggle unused PB0 on each conversion (scope diagnostic) */
++#define ENABLE_BOOT_ADC2_READ   0u /* ADC2 = VvInt: do not report as bias */
++#define ENABLE_ADC_SCOPE_MARKER 0u /* MUST remain 0: PB0 clocks the 74HC595 */
++#if ENABLE_ADC_SCOPE_MARKER
++#error "PB0 is the SMT display shift clock; scope marker is forbidden"
+ #endif
++#endif
+
+--- working_throughhole/display.c
++++ SMT/display.c
+@@ -14,17 +14,17 @@
+ static meter_reading_t current;
+ 
+ static void shift8(uint8_t b) {
+-    PORTC &= (uint8_t)~_BV(DISPLAY_SH_CP_PC);
+-    PORTC &= (uint8_t)~_BV(DISPLAY_SH_ST_PC);
++    PORTB &= (uint8_t)~_BV(DISPLAY_SH_CP_PB);
++    PORTB &= (uint8_t)~_BV(DISPLAY_SH_ST_PB);
+     for (uint8_t i=0; i<8; i++) {
+-        if (b & 0x80u) PORTC |= _BV(DISPLAY_SH_DS_PC);
+-        else PORTC &= (uint8_t)~_BV(DISPLAY_SH_DS_PC);
+-        PORTC |= _BV(DISPLAY_SH_CP_PC);
+-        PORTC &= (uint8_t)~_BV(DISPLAY_SH_CP_PC);
++        if (b & 0x80u) PORTB |= _BV(DISPLAY_SH_DS_PB);
++        else PORTB &= (uint8_t)~_BV(DISPLAY_SH_DS_PB);
++        PORTB |= _BV(DISPLAY_SH_CP_PB);
++        PORTB &= (uint8_t)~_BV(DISPLAY_SH_CP_PB);
+         b <<= 1;
+     }
+-    PORTC |= _BV(DISPLAY_SH_ST_PC);
+-    PORTC &= (uint8_t)~_BV(DISPLAY_SH_ST_PC);
++    PORTB |= _BV(DISPLAY_SH_ST_PB);
++    PORTB &= (uint8_t)~_BV(DISPLAY_SH_ST_PB);
+ }
+ static void show_tenths(uint16_t n, uint8_t prefix) {
+     /* U? No room for U+14.0; voltage is displayed as 14.0 (with blank left). */
+@@ -77,11 +77,11 @@
+ }
+ 
+ void display_init(void) {
+-    DDRC |= _BV(DISPLAY_SH_CP_PC)|_BV(DISPLAY_SH_DS_PC)|_BV(DISPLAY_SH_ST_PC);
+-    DDRB |= _BV(DISPLAY_OE_PB);
++    DDRB |= _BV(DISPLAY_SH_CP_PB)|_BV(DISPLAY_SH_DS_PB)|_BV(DISPLAY_SH_ST_PB);
++    DDRD |= _BV(DISPLAY_OE_PD);
+     DDRD |= 0xF0u;
+     PORTD |= 0xF0u; /* all digits OFF (common cathodes active-low) */
+-    PORTB &= (uint8_t)~_BV(DISPLAY_OE_PB); /* 74HC595 OE active-low */
++    PORTD &= (uint8_t)~_BV(DISPLAY_OE_PD); /* 74HC595 OE active-low */
+     digit_pos=0; mode=0;
+     shift8(0);
+ }
+
+--- working_throughhole/measurements.c
++++ SMT/measurements.c
+@@ -4,7 +4,7 @@
+ 
+ /* All running statistics are evaluated in the main loop, NOT the ADC ISR.
+  * A pair is completed when the next voltage sample arrives:
+- *  voltage(t0), current(t0+160us), voltage(t0+320us).
++ *  voltage(t0), current(t0+~208us), voltage(t0+~416us).
+  * Sum/difference provide quadrature reconstruction for nominal 500Hz AC.
+  */
+ #define PI_F 3.14159265358979323846f
+@@ -90,7 +90,7 @@
+     latest.current_bias_adc = (uint16_t)((a.sum_i + (a.n/2))/a.n);
+     latest.flags = (CALIBRATION_COMPLETE ? 1u : 0u) | 2u | (window_fault ? 4u : 0u);
+     if (a.i_min <= 2u || a.i_max >= 1021u || a.v_min <= 2u || a.v_max >= 1021u) latest.flags |= 8u;
+-    /* 250 pairs at 3125 pairs/sec: 80ms. Mark lost windows instead of hiding faults. */
++    /* 240 pairs at ~2404 pairs/sec: ~100ms. Mark lost windows. */
+     energy_wh += watts * ((float)elapsed_window_ms / 3600000.0f);
+     if (energy_wh < 0) energy_wh = 0;
+     latest.energy_mwh = to_u32(energy_wh*1000.0f);
+
+--- working_throughhole/Firmware.cproj
++++ SMT/Firmware.cproj
+@@ -4,8 +4,8 @@
+     <SchemaVersion>2.0</SchemaVersion>
+     <ProjectVersion>7.0</ProjectVersion>
+     <ToolchainName>com.Atmel.AVRGCC8.C</ToolchainName>
+-    <ProjectGuid>dce6c7e3-ee26-4d79-826b-08594b9ad897</ProjectGuid>
+-    <avrdevice>ATmega328P</avrdevice>
++    <ProjectGuid>d38b2733-b34d-5e00-9c7b-376f63d66818</ProjectGuid>
++    <avrdevice>ATmega328PB</avrdevice>
+     <avrdeviceseries>none</avrdeviceseries>
+     <OutputType>Executable</OutputType>
+     <Language>C</Language>
+@@ -44,7 +44,7 @@
+   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+     <ToolchainSettings>
+       <AvrGcc>
+-        <avrgcc.common.Device>-mmcu=atmega328p -B "%24(PackRepoDir)\atmel\ATmega_DFP\1.7.374\gcc\dev\atmega328p"</avrgcc.common.Device>
++        <avrgcc.common.Device>-mmcu=atmega328pb -B "%24(PackRepoDir)\atmel\ATmega_DFP\1.7.374\gcc\dev\atmega328pb"</avrgcc.common.Device>
+         <avrgcc.common.outputfiles.hex>True</avrgcc.common.outputfiles.hex>
+         <avrgcc.common.outputfiles.lss>True</avrgcc.common.outputfiles.lss>
+         <avrgcc.common.outputfiles.eep>True</avrgcc.common.outputfiles.eep>
+@@ -82,7 +82,7 @@
+   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+     <ToolchainSettings>
+       <AvrGcc>
+-  <avrgcc.common.Device>-mmcu=atmega328p -B "%24(PackRepoDir)\atmel\ATmega_DFP\1.7.374\gcc\dev\atmega328p"</avrgcc.common.Device>
++  <avrgcc.common.Device>-mmcu=atmega328pb -B "%24(PackRepoDir)\atmel\ATmega_DFP\1.7.374\gcc\dev\atmega328pb"</avrgcc.common.Device>
+   <avrgcc.common.outputfiles.hex>True</avrgcc.common.outputfiles.hex>
+   <avrgcc.common.outputfiles.lss>True</avrgcc.common.outputfiles.lss>
+   <avrgcc.common.outputfiles.eep>True</avrgcc.common.outputfiles.eep>
+
+--- working_throughhole/Firmware.componentinfo.xml
++++ SMT/Firmware.componentinfo.xml
+@@ -26,13 +26,13 @@
+ 					<SourcePath></SourcePath>
+ 				</d4p1:anyType>
+ 				<d4p1:anyType i:type="FileInfo">
+-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\include\avr\iom328p.h</AbsolutePath>
++					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\include\avr\iom328pb.h</AbsolutePath>
+ 					<Attribute></Attribute>
+ 					<Category>header</Category>
+ 					<Condition>C</Condition>
+ 					<FileContentHash>4leX2H78R90/kvebBjYSOw==</FileContentHash>
+ 					<FileVersion></FileVersion>
+-					<Name>include/avr/iom328p.h</Name>
++					<Name>include/avr/iom328pb.h</Name>
+ 					<SelectString></SelectString>
+ 					<SourcePath></SourcePath>
+ 				</d4p1:anyType>
+@@ -59,13 +59,13 @@
+ 					<SourcePath></SourcePath>
+ 				</d4p1:anyType>
+ 				<d4p1:anyType i:type="FileInfo">
+-					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\gcc\dev\atmega328p</AbsolutePath>
++					<AbsolutePath>C:/Program Files (x86)\Atmel\Studio\7.0\Packs\atmel\ATmega_DFP\1.7.374\gcc\dev\atmega328pb</AbsolutePath>
+ 					<Attribute></Attribute>
+ 					<Category>libraryPrefix</Category>
+ 					<Condition>GCC</Condition>
+ 					<FileContentHash i:nil="true" />
+ 					<FileVersion></FileVersion>
+-					<Name>gcc/dev/atmega328p</Name>
++					<Name>gcc/dev/atmega328pb</Name>
+ 					<SelectString></SelectString>
+ 					<SourcePath></SourcePath>
+ 				</d4p1:anyType>
+@@ -74,7 +74,7 @@
+ 			<PackPath>C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.7.374/Atmel.ATmega_DFP.pdsc</PackPath>
+ 			<PackVersion>1.7.374</PackVersion>
+ 			<PresentInProject>true</PresentInProject>
+-			<ReferenceConditionId>ATmega328P</ReferenceConditionId>
++			<ReferenceConditionId>ATmega328PB</ReferenceConditionId>
+ 			<RteComponents xmlns:d4p1="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
+ 				<d4p1:string></d4p1:string>
+ 			</RteComponents>
+
